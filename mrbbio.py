@@ -1,12 +1,13 @@
 """Arduino-like library for Python on BeagleBone"""
 import time
+import traceback
 
 HIGH = "HIGH"
 LOW = "LOW"
 OUTPUT = "OUTPUT"
 INPUT = "INPUT"
-pinList = [] # needed for unexport()
-startTime = time.time() # needed for millis()
+pinList = []  # needed for unexport()
+startTime = time.time()  # needed for millis()
 digitalPinDef = {
 			"P8.3":		38,
 			"P8.4":		39,
@@ -154,60 +155,65 @@ analogPinDef = {
 			"P9.39":	"ain0",
 			"P9.40":	"ain1"}
 
+
 def pinMode(pin, direction):
-	"""pinMode(pin, direction) opens (exports) a pin for use, sets the pinmux, and 
+	"""pinMode(pin, direction) opens (exports) a pin for use, sets the pinmux, and
 	sets the direction"""
-	if pin in digitalPinDef: # if we know how to refer to the pin:
+
+	if pin in digitalPinDef:  # if we know how to refer to the pin:
 		fw = file("/sys/class/gpio/export", "w")
-		fw.write("%d" % (digitalPinDef[pin])) # write the pin to export to userspace
+		fw.write("%d" % (digitalPinDef[pin]))  # write the pin to export to userspace
 		fw.close()
-		fileName = "/sys/class/gpio/gpio%d/direction" % (digitalPinDef[pin]) 
+		fileName = "/sys/class/gpio/gpio%d/direction" % (digitalPinDef[pin])
 		fw = file(fileName, "w")
-		if direction == INPUT: 
-			fw.write("in") # write the diretion
-			muxfile = file("/sys/kernel/debug/omap_mux/" + pinMuxDef[pin], "w") # open its mux file
-			muxfile.write("2F") # put it into mode 7 input, no pulldown
+
+		if direction == INPUT:
+			fw.write("in")  # write the diretion
+			muxfile = file("/sys/kernel/debug/omap_mux/" + pinMuxDef[pin], "w")  # open its mux file
+			muxfile.write("2F")  # put it into mode 7 input, no pulldown
 			muxfile.close
 		else:
-			fw.write("out") # write the diretion
-			muxfile = file("/sys/kernel/debug/omap_mux/" + pinMuxDef[pin], "w") # open its mux file
-			muxfile.write("7") # put it into mode 7 output)
+			fw.write("out")  # write the diretion
+			muxfile = file("/sys/kernel/debug/omap_mux/" + pinMuxDef[pin], "w")  # open its mux file
+			muxfile.write("7")  # put it into mode 7 output)
 			muxfile.close
 		fw.close()
-		pinList.append(digitalPinDef[pin]) # Keep a list of exported pins so that we can unexport them.
-	else: #if we don't know how to refer to a pin:
+		pinList.append(digitalPinDef[pin])  # Keep a list of exported pins so that we can unexport them.
+	else:  # if we don't know how to refer to a pin:
 		print "pinMode error: Pin " + pin + " is not defined as a digital I/O pin in the pin definition."
 
 
 def digitalWrite(pin, status):
 	"""digitalWrite(pin, status) sets a pin HIGH or LOW"""
-	if digitalPinDef[pin] in pinList: # check if we exported the pin in pinMode
+	if digitalPinDef[pin] in pinList:  # check if we exported the pin in pinMode
 		fileName = "/sys/class/gpio/gpio%d/value" % (digitalPinDef[pin])
-		fw = file(fileName, "w") # open the pin's value file for writing
+		fw = file(fileName, "w")  # open the pin's value file for writing
 		if status == HIGH:
-			fw.write("1") # Set the pin HIGH by writing 1 to its value file
+			fw.write("1")  # Set the pin HIGH by writing 1 to its value file
 		if status == LOW:
-			fw.write("0") # Set the pin LOW by writing 0 to its value file
+			fw.write("0")  # Set the pin LOW by writing 0 to its value file
 		fw.close()
-	else: # if we haven't exported the pin, print an error:
+	else:  # if we haven't exported the pin, print an error:
 		print "digitalWrite error: Pin mode for " + pin + " has not been set. Use pinMode(pin, INPUT) first."
-	
+
+
 def digitalRead(pin):
 	"""digitalRead(pin) returns HIGH or LOW for a given pin."""
-	if digitalPinDef[pin] in pinList: # check if we exported the pin in pinMode
+	if digitalPinDef[pin] in pinList:  # check if we exported the pin in pinMode
 		fileName = "/sys/class/gpio/gpio%d/value" % (digitalPinDef[pin])
-		fw = file(fileName, "r") # open the pin's value file for reading
+		fw = file(fileName, "r")  # open the pin's value file for reading
 		inData = fw.read()
 		fw.close()
-		if inData == "0\n": # a 0 means it's low
+		if inData == "0\n":  # a 0 means it's low
 			return LOW
-		if inData == "1\n": # a 1 means it's high
+		if inData == "1\n":  # a 1 means it's high
 			return HIGH
-	else: # if we haven't exported the pin, print an error (not working for some reason):
+	else:  # if we haven't exported the pin, print an error (not working for some reason):
 		print "digitalRead error: Pin mode for " + pin + " has not been set. Use pinMode(pin, OUTPUT) first."
-		return -1;
+		return -1
 
-def analogRead(pin): #under construction!
+
+def analogRead(pin):  # under construction!
 	"""analogRead(pin) returns analog value for a given pin."""
 	if pin in analogPinDef:
 		fileName = "/sys/devices/platform/tsc/" + (analogPinDef[pin])
@@ -217,40 +223,45 @@ def analogRead(pin): #under construction!
 		return data
 	else:
 		print "analogRead error: Pin " + pin + " is not defined as an analog in pin in the pin definition."
-		return -1;
-	
-def pinUnexport(pin): # helper function for cleanup()
-	"""pinUnexport(pin) closes a pin in sysfs. This is susally 
+		return -1
+
+
+def pinUnexport(pin):  # helper function for cleanup()
+	"""pinUnexport(pin) closes a pin in sysfs. This is susally
 	called by cleanup() when a script is exiting."""
 	fw = file("/sys/class/gpio/unexport", "w")
 	fw.write("%d" % (pin))
 	fw.close()
 
+
 def cleanup():
 	"""	takes care of stepping through pins that were set with
 	pinMode and unExports them. Prints result"""
 	def find_key(dic, val):
-		return [k for k, v in dic.iteritems() if v == val][0] # helper function for getting friendly name of pin
+		return [k for k, v in dic.iteritems() if v == val][0]  # helper function for getting friendly name of pin
 	print ""
 	print "Cleaning up. Unexporting the following pins:",
-	for pin in pinList: # for each pin we exported... 
-		pinUnexport(pin) # ...unexport it...
-		print find_key(digitalPinDef, pin), #...and print the friendly name of the pin
+	for pin in pinList:  # for each pin we exported...
+		pinUnexport(pin)  # ...unexport it...
+		print find_key(digitalPinDef, pin),  # ...and print the friendly name of the pin
+
 
 def delay(millis):
-	"""delay(millis) sleeps the script for a given number of 
+	"""delay(millis) sleeps the script for a given number of
 	milliseconds"""
 	time.sleep(millis/1000.0)
 
+
 def millis():
-	"""millis() returns an int for the number of milliseconds since 
+	"""millis() returns an int for the number of milliseconds since
 	the script started."""
 	return int((time.time() - startTime) * 1000)
 
-def run(setup, main): # from PyBBIO by Alexander Hiam - ahiam@marlboro.edu - www.alexanderhiam.com https://github.com/alexanderhiam/PyBBIO
+
+def run(setup, main):  # from PyBBIO by Alexander Hiam - ahiam@marlboro.edu - www.alexanderhiam.com https://github.com/alexanderhiam/PyBBIO
 	""" The main loop; must be passed a setup and a main function.
 	First the setup function will be called once, then the main
-	function wil be continuously until a stop signal is raised, 
+	function wil be continuously until a stop signal is raised,
 	e.g. CTRL-C or a call to the stop() function from within the
 	main function. """
 	try:
@@ -258,9 +269,10 @@ def run(setup, main): # from PyBBIO by Alexander Hiam - ahiam@marlboro.edu - www
 		while (True):
 			main()
 	except KeyboardInterrupt:
-    # Manual exit signal, clean up and exit happy
+	# Manual exit signal, clean up and exit happy
 		cleanup()
 	except Exception, e:
-    # Something may have gone wrong, clean up and print exception
+	# Something may have gone wrong, clean up and print exception
 		cleanup()
 		print e
+		traceback.print_stack()
